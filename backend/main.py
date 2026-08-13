@@ -101,8 +101,25 @@ def _save_usage(data: dict) -> None:
         pass  # best-effort; the OpenAI account cap is the real backstop
 
 
+def _price_for(model: str) -> dict | None:
+    """Resolve a price entry for a model name.
+
+    OpenAI echoes back dated model ids (e.g. "gpt-4o-mini-2024-07-18") while the
+    price table is keyed by aliases ("gpt-4o-mini"). Match exactly first, then
+    fall back to the longest alias that is a prefix of the returned name — longest
+    wins so "gpt-4o-mini-..." resolves to "gpt-4o-mini", not "gpt-4o".
+    """
+    if model in PRICES:
+        return PRICES[model]
+    best_key = None
+    for key in PRICES:
+        if model.startswith(key) and (best_key is None or len(key) > len(best_key)):
+            best_key = key
+    return PRICES.get(best_key) if best_key else None
+
+
 def _cost_for(model: str, usage: dict) -> float:
-    price = PRICES.get(model)
+    price = _price_for(model)
     if not price:
         return 0.0
     prompt = usage.get("prompt_tokens", 0)
