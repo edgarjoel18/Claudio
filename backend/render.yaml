@@ -1,0 +1,24 @@
+# Render Blueprint — deploy the Claudio LLM proxy.
+# In Render: New → Blueprint → point at this repo. Then set the secret env vars
+# (OPENAI_API_KEY, PROXY_ACCESS_TOKENS) in the dashboard — they are intentionally
+# NOT in this file so secrets never live in git.
+services:
+  - type: web
+    name: claudio-proxy
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false          # set manually in the dashboard
+      - key: PROXY_ACCESS_TOKENS
+        sync: false          # set manually in the dashboard
+      - key: MONTHLY_USD_CAP
+        value: "20"
+      - key: RATE_LIMIT_PER_MIN
+        value: "20"
+      - key: ALLOWED_MODELS
+        value: "gpt-4o,gpt-4o-mini,text-embedding-3-small"

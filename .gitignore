@@ -1,0 +1,30 @@
+# Secrets — never commit
+.env
+**/.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Generated runtime data
+.chromadb/
+.memory/
+.claudio/
+*.db
+*.sqlite3
+
+# IDE / tooling
+.idea/
+.vscode/
+.claude/
+
+# OS
+.DS_Store

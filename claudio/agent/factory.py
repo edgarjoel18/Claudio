@@ -1,0 +1,56 @@
+from langchain.agents import create_agent
+
+from claudio.llm.factory import get_llm
+from claudio.agent.tools import search_codebase
+from claudio.observability.logging import get_logger
+from claudio.tools.terminal_tools import run_command, run_in_directory
+from claudio.tools.filesystem_tools import (
+  read_file,
+  write_file,
+  append_file,
+  list_directory,
+  file_exists,
+)
+from claudio.mcp.mcp_client import get_mcp_tools
+from claudio.skills.skill_tools import load_skill, build_skills_prompt
+from claudio.memory.short_term import get_summarization_middleware
+
+logger = get_logger(__name__)
+
+SYSTEM_PROMPT = """You are a senior software engineer with deep knowledge of the codebase.
+Always use the search_codebase tool before answering any question.
+Reference specific file names, function names and line numbers in your answers.
+If you cannot find the answer in the codebase, say so explicitly."""
+
+async def build_agent(checkpointer):
+  """Create and return a LangChain agent with persistent memory."""
+  llm = get_llm()
+  mcp_tools = await get_mcp_tools()
+
+  skills_prompt = build_skills_prompt()
+  full_prompt = SYSTEM_PROMPT
+  if skills_prompt:
+      full_prompt = SYSTEM_PROMPT + "\n\n" + skills_prompt
+
+
+  tools = [
+      search_codebase,
+      load_skill,
+      run_command,
+      run_in_directory,
+      read_file,
+      write_file,
+      append_file,
+      list_directory,
+      file_exists,
+      *mcp_tools,
+  ]
+
+
+  return create_agent(
+      llm,
+      tools=tools,
+      system_prompt=full_prompt,
+      checkpointer=checkpointer,
+      middleware=[get_summarization_middleware()],
+  )
