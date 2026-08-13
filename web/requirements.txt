@@ -1,0 +1,5 @@
+streamlit>=1.38,<2.0
+openai>=1.40,<3.0
+numpy>=1.26,<3.0
+tree-sitter==0.21.3
+tree-sitter-languages==1.10.2
