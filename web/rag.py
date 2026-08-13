@@ -2,31 +2,27 @@
 Self-contained, read-only RAG over the Claudio codebase for the public web demo.
 
 Design notes:
-- Reuses Claudio's real tree-sitter chunker (`code_parser`) so the demo indexes
-  code exactly the way the CLI does.
-- Keeps the vector store in-memory (numpy cosine) instead of pulling the full
-  Qdrant/FastEmbed/onnxruntime stack, so it deploys cleanly on free hosting.
-- Talks to the hosted LLM proxy (never a raw OpenAI key), so the demo is
-  key-free for visitors and billed to the proxy owner.
+- Fully standalone: no dependency on the `claudio` package or tree-sitter, so it
+  deploys cleanly on any Python version / free host. Python files are chunked
+  with the stdlib `ast` module (top-level functions & classes); other text files
+  fall back to a sliding window.
+- Keeps the vector store in-memory (numpy cosine) — no Qdrant/FastEmbed/onnxruntime.
+- Talks to the hosted LLM proxy (never a raw OpenAI key), so the demo is key-free
+  for visitors and billed to the proxy owner.
 - Read-only: it retrieves + answers. It never runs commands or writes files —
   safe to expose on a public URL.
 """
 from __future__ import annotations
 
+import ast
 import os
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 from openai import OpenAI
 
-# Make the `claudio` package importable (repo root is the parent of web/).
 REPO_ROOT = Path(__file__).resolve().parent.parent
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
-from claudio.context.indexers.code_parser import parse_file, get_source_files  # noqa: E402
 
 EMBED_MODEL = os.getenv("EMBED_MODEL", "text-embedding-3-small")
 CHAT_MODEL = os.getenv("CHAT_MODEL", "gpt-4o-mini")
@@ -36,6 +32,11 @@ EMBED_BATCH = 100
 # Top retrieval score above which we treat the question as codebase-related
 # (grounds the answer + shows sources). Below it, we answer conversationally.
 RELEVANCE_THRESHOLD = float(os.getenv("RELEVANCE_THRESHOLD", "0.28"))
+
+TEXT_EXTENSIONS = {".md", ".txt", ".yaml", ".yml", ".json", ".toml"}
+SKIP_DIRS = {".venv", "venv", "__pycache__", ".git", "node_modules", "dist", "build"}
+CHUNK_SIZE = 50
+CHUNK_OVERLAP = 10
 
 SYSTEM_PROMPT = (
     "You are Claudio, a friendly and knowledgeable code assistant. You have access "
@@ -50,6 +51,16 @@ SYSTEM_PROMPT = (
 
 
 @dataclass
+class Chunk:
+    content: str
+    name: str
+    type: str
+    source: str
+    start_line: int
+    end_line: int
+
+
+@dataclass
 class Source:
     path: str        # repo-relative path
     name: str
@@ -60,6 +71,60 @@ class Source:
     content: str
 
 
+# ---------------------------------------------------------------------------
+# Chunking (dependency-free)
+# ---------------------------------------------------------------------------
+def _iter_source_files(root: str):
+    for path in Path(root).rglob("*"):
+        if path.suffix.lower() not in (TEXT_EXTENSIONS | {".py"}):
+            continue
+        if any(part in SKIP_DIRS for part in path.parts):
+            continue
+        yield path
+
+
+def _window_chunks(lines: list[str], source: str) -> list[Chunk]:
+    chunks: list[Chunk] = []
+    step = CHUNK_SIZE - CHUNK_OVERLAP
+    for i, start in enumerate(range(0, len(lines), step)):
+        end = min(start + CHUNK_SIZE, len(lines))
+        text = "\n".join(lines[start:end]).strip()
+        if text:
+            chunks.append(Chunk(text, f"chunk_{i}", "block", source, start + 1, end))
+        if end == len(lines):
+            break
+    return chunks
+
+
+def _python_chunks(text: str, source: str) -> list[Chunk]:
+    """Top-level functions and classes via `ast` — exact names, no nesting."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return _window_chunks(text.splitlines(), source)
+    lines = text.splitlines()
+    chunks: list[Chunk] = []
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            start = node.lineno
+            end = getattr(node, "end_lineno", start) or start
+            content = "\n".join(lines[start - 1 : end])
+            ctype = "class" if isinstance(node, ast.ClassDef) else "function"
+            chunks.append(Chunk(content, node.name, ctype, source, start, end))
+    return chunks or _window_chunks(lines, source)
+
+
+def _parse_file(path: Path) -> list[Chunk]:
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    source = str(path)
+    if path.suffix.lower() == ".py":
+        return _python_chunks(text, source)
+    return _window_chunks(text.splitlines(), source)
+
+
+# ---------------------------------------------------------------------------
+# Embeddings / index
+# ---------------------------------------------------------------------------
 def get_client() -> OpenAI:
     """OpenAI-compatible client pointed at the hosted proxy (never a raw key)."""
     base = os.getenv("CLAUDIO_API_BASE")
@@ -88,7 +153,7 @@ def _normalize(v: np.ndarray) -> np.ndarray:
 class CodebaseIndex:
     """In-memory dense index over the parsed code chunks."""
 
-    def __init__(self, chunks: list, vectors: np.ndarray):
+    def __init__(self, chunks: list[Chunk], vectors: np.ndarray):
         self._chunks = chunks
         self._vectors = _normalize(vectors)
 
@@ -108,27 +173,19 @@ class CodebaseIndex:
             except ValueError:
                 rel = c.source
             results.append(
-                Source(
-                    path=rel,
-                    name=c.name,
-                    type=c.type,
-                    start_line=c.start_line,
-                    end_line=c.end_line,
-                    score=float(sims[int(i)]),
-                    content=c.content,
-                )
+                Source(rel, c.name, c.type, c.start_line, c.end_line, float(sims[int(i)]), c.content)
             )
         return results
 
 
 def build_index(client: OpenAI) -> CodebaseIndex:
-    """Parse and embed the target codebase once. Reuses Claudio's tree-sitter chunker."""
-    chunks = []
-    for filepath in get_source_files(INDEX_DIR):
+    """Parse and embed the target codebase once."""
+    chunks: list[Chunk] = []
+    for filepath in _iter_source_files(INDEX_DIR):
         try:
-            chunks.extend(parse_file(filepath))
-        except (SyntaxError, ValueError):
-            continue  # skip files the parser can't handle
+            chunks.extend(_parse_file(filepath))
+        except (OSError, ValueError):
+            continue
     if not chunks:
         raise RuntimeError(f"No indexable source found under {INDEX_DIR}")
     vectors = _embed(client, [c.content for c in chunks])
