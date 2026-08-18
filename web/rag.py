@@ -192,11 +192,38 @@ def build_index(client: OpenAI) -> CodebaseIndex:
     return CodebaseIndex(chunks, vectors)
 
 
-def answer(client: OpenAI, index: CodebaseIndex, question: str, k: int = 5) -> tuple[str, list[Source]]:
-    """Answer any question. Code is always retrieved and offered as optional
-    context, so codebase questions are grounded and cited; general questions are
-    answered conversationally. Sources are only surfaced when the retrieved code
-    is actually relevant (by score), so chit-chat doesn't show random files."""
+def answer(
+    client: OpenAI,
+    index: CodebaseIndex,
+    question: str,
+    k: int = 5,
+    pasted_code: str | None = None,
+) -> tuple[str, list[Source]]:
+    """Answer any question.
+
+    - If the user pasted their own code, answer about *that* snippet (no Claudio
+      retrieval, no repo sources).
+    - Otherwise, Claudio's code is retrieved and offered as optional context so
+      codebase questions are grounded and cited, while general questions are
+      answered conversationally. Repo sources are only surfaced when the retrieved
+      code is actually relevant (by score), so chit-chat doesn't show random files.
+    """
+    if pasted_code and pasted_code.strip():
+        user_content = (
+            f"{question}\n\n"
+            f"The user pasted this code to ask about — answer based on it:\n"
+            f"```\n{pasted_code}\n```"
+        )
+        resp = client.chat.completions.create(
+            model=CHAT_MODEL,
+            temperature=0.2,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_content},
+            ],
+        )
+        return resp.choices[0].message.content, []
+
     sources = index.search(client, question, k=k)
     context = "\n\n".join(
         f"### {s.path} — {s.name} ({s.type}, lines {s.start_line}-{s.end_line})\n{s.content}"

@@ -27,10 +27,22 @@ st.set_page_config(page_title="Claudio — code assistant demo", page_icon="🤖
 st.title("🤖 Claudio")
 st.caption(
     "A RAG-powered code assistant. Ask it **anything** — it chats normally, and for "
-    "questions about **Claudio's own codebase** it retrieves the relevant source and "
-    "answers with citations. Read-only demo; the full agentic CLI (with tools, memory, "
-    "and planning) lives in the repo."
+    "questions about **the Claudio app itself, its architecture, and its codebase** it "
+    "retrieves the relevant source and answers with citations. You can also **paste your "
+    "own code** in the sidebar and ask questions about that. Read-only demo; the full "
+    "agentic CLI (with tools, memory, and planning) lives in the repo."
 )
+
+# Sidebar: let a visitor paste their own snippet and ask about it.
+with st.sidebar:
+    st.header("Ask about your own code")
+    pasted_code = st.text_area(
+        "Paste code here (optional)",
+        height=220,
+        placeholder="def greet(name):\n    return f'hi {name}'",
+    )
+    if pasted_code and pasted_code.strip():
+        st.caption("Questions will be answered about this pasted code.")
 
 EXAMPLES = [
     "How does the semantic cache work?",
@@ -93,7 +105,7 @@ if prompt:
     with st.chat_message("assistant"):
         with st.spinner("Retrieving and answering…"):
             try:
-                reply, sources = rag.answer(client, index, prompt)
+                reply, sources = rag.answer(client, index, prompt, pasted_code=pasted_code)
             except Exception as e:  # noqa: BLE001
                 reply, sources = f"Sorry — something went wrong: {e}", []
         st.markdown(reply)
