@@ -26,10 +26,10 @@ st.set_page_config(page_title="Claudio — code assistant demo", page_icon="🤖
 
 st.title("🤖 Claudio")
 st.caption(
-    "A RAG-powered code assistant. Ask it **anything** — it chats normally, and for "
-    "questions about **the Claudio app itself, its architecture, and its codebase** it "
-    "retrieves the relevant source and answers with citations. Read-only demo; the full "
-    "agentic CLI (with tools, memory, and planning) lives in the repo."
+    "A RAG-powered code assistant. Ask it **anything** — it chats normally, answers "
+    "questions about **the Claudio app, its architecture, and its codebase** with cited "
+    "sources, and you can **paste your own code right into the chat** to ask about that. "
+    "Read-only demo; the full agentic CLI (with tools, memory, and planning) lives in the repo."
 )
 
 EXAMPLES = [
@@ -83,7 +83,7 @@ for msg in st.session_state.messages:
                         f"- `{s.path}` — **{s.name}** ({s.type}, lines {s.start_line}–{s.end_line})"
                     )
 
-prompt = st.chat_input("Ask about the Claudio codebase…") or st.session_state.pop("pending", None)
+prompt = st.chat_input("Ask about Claudio — or paste your own code to ask about it…") or st.session_state.pop("pending", None)
 
 if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
