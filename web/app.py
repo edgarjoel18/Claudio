@@ -63,14 +63,14 @@ st.success(f"Indexed {index.size} code chunks — ask away.")
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Example prompts (only before the first question).
-if not st.session_state.messages:
-    st.write("**Try one:**")
-    cols = st.columns(2)
-    for i, example in enumerate(EXAMPLES):
-        if cols[i % 2].button(example, use_container_width=True):
-            st.session_state.pending = example
-            st.rerun()
+# Example prompts — always available so a click is always handled (a click on a
+# button that isn't re-instantiated on the next run is silently dropped).
+st.write("**Try one:**")
+cols = st.columns(2)
+for i, example in enumerate(EXAMPLES):
+    if cols[i % 2].button(example, use_container_width=True):
+        st.session_state.pending = example
+        st.rerun()
 
 # Replay history.
 for msg in st.session_state.messages:
