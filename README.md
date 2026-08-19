@@ -16,12 +16,43 @@ served from a Redis-backed semantic cache.
 - **Semantic response cache** (Redis) with automatic invalidation on code changes
 - **`/plan`** — generate and execute multi-step task plans
 
-## Prerequisites
+## Quickstart — try the CLI (no setup)
+
+Run Claudio on any codebase with **no API key, no Qdrant, and no Docker**. It
+routes LLM calls through a hosted proxy and uses an in-memory vector store, so a
+single install is all it takes.
+
+Requires **Python 3.11–3.13** and **[pipx](https://pipx.pypa.io/en/stable/installation/)**.
+
+```bash
+# 1. Install straight from GitHub
+pipx install git+https://github.com/edgarjoel18/Claudio.git
+
+# 2. Set the demo access token (provided alongside this link)
+export CLAUDIO_API_KEY=<token>
+
+# 3. Run inside any project you want to ask about
+cd some-project
+claudio
+```
+
+Then type a question (or `/ask <question>`), and `/exit` to quit. The token
+routes through a rate-limited, spend-capped proxy — no OpenAI key required.
+
+> Prefer your own OpenAI key instead of the proxy? Just `export OPENAI_API_KEY=...`
+> (don't set `CLAUDIO_API_KEY`) and Claudio calls OpenAI directly.
+
+## Development / full setup
+
+For the complete hybrid-Qdrant + Redis experience and local development:
+
+### Prerequisites
 
 - **Python 3.11, 3.12, or 3.13** (not 3.14 yet)
 - **[Poetry](https://python-poetry.org/docs/#installation)**
 - An **OpenAI API key**
-- A running **Qdrant** instance (default backend)
+- A running **Qdrant** instance (enables hybrid retrieval; without it, Claudio
+  falls back to the in-memory store automatically)
 - **Redis** — optional; enables the semantic cache (the app runs fine without it)
 
 The easiest way to run Qdrant and Redis locally is Docker:
